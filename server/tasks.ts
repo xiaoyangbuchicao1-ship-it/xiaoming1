@@ -1,12 +1,6 @@
 import { Router } from "express";
-import { z } from "zod";
+import { createTaskInputSchema, updateTaskInputSchema } from "../shared/task.ts";
 import type { TaskStore } from "./task-store.ts";
-
-const createTaskSchema = z.strictObject({ title: z.string().trim().min(1).max(200) });
-const updateTaskSchema = createTaskSchema
-  .partial()
-  .extend({ done: z.boolean().optional() })
-  .refine((changes) => Object.keys(changes).length > 0);
 
 const taskNotFound = { error: "找不到这条任务。" };
 
@@ -18,17 +12,17 @@ export function taskRouter(tasks: TaskStore) {
   });
 
   router.post("/", (req, res) => {
-    const input = createTaskSchema.safeParse(req.body);
+    const input = createTaskInputSchema.safeParse(req.body);
     if (!input.success) {
-      return res.status(400).json({ error: "请提供 1 至 200 个字符的任务标题。" });
+      return res.status(400).json({ error: "请提供有效的任务标题（1 至 200 个字符）及可选属性。" });
     }
-    res.status(201).json(tasks.create(input.data.title));
+    res.status(201).json(tasks.create(input.data));
   });
 
   router.patch("/:id", (req, res) => {
-    const input = updateTaskSchema.safeParse(req.body);
+    const input = updateTaskInputSchema.safeParse(req.body);
     if (!input.success) {
-      return res.status(400).json({ error: "请提供有效的 title 或 done 字段。" });
+      return res.status(400).json({ error: "请提供有效的任务更新字段。" });
     }
 
     const updated = tasks.update(req.params.id, input.data);

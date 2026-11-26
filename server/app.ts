@@ -39,5 +39,9 @@ const handleApiError: ErrorRequestHandler = (error, _req, res, _next) => {
     return res.status(413).json({ error: "对话太长，请刷新后开始新的对话。" });
   }
   console.error(error);
-  res.status(500).json({ error: "服务暂时无法处理请求，请稍后重试。" });
+  const message =
+    error instanceof Error && error.message.includes("DEEPSEEK_API_KEY")
+      ? error.message
+      : "服务暂时无法处理请求，请稍后重试。";
+  res.status(500).json({ error: message });
 };

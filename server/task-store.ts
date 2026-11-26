@@ -2,23 +2,49 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
+import type {
+  CreateTaskInput,
+  Subtask,
+  SubtaskInput,
+  Task,
+  UpdateTaskInput,
+} from "../shared/task.ts";
 
 const storedTask = z.looseObject({ id: z.string(), title: z.string(), done: z.boolean() });
 const taskList = z.array(storedTask);
-type Task = z.infer<typeof storedTask>;
-type TaskChanges = Partial<Pick<Task, "title" | "done">>;
 
 export interface TaskStore {
   list(): Task[];
-  create(title: string): Task;
-  update(id: string, changes: TaskChanges): Task | undefined;
+  create(input: string | CreateTaskInput): Task;
+  update(id: string, changes: UpdateTaskInput): Task | undefined;
   remove(id: string): boolean;
+}
+
+function normalizeSubtasks(items: SubtaskInput[]): Subtask[] {
+  return items.map((item) => ({
+    id: item.id ?? randomUUID(),
+    title: item.title,
+    done: item.done ?? false,
+  }));
+}
+
+function applyOptionalField<K extends "dueDate" | "priority" | "effort">(
+  target: Task,
+  key: K,
+  value: Task[K] | null | undefined,
+) {
+  if (value === undefined) return;
+  if (value === null) {
+    delete target[key];
+    return;
+  }
+  target[key] = value;
 }
 
 export function createJsonTaskStore(filename: string): TaskStore {
   function list(): Task[] {
     if (!existsSync(filename)) return [];
-    return taskList.parse(JSON.parse(readFileSync(filename, "utf8")));
+    return taskList.parse(JSON.parse(readFileSync(filename, "utf8"))) as Task[];
   }
 
   // 同一服务进程内同步完成读写；替换文件前，原清单始终完整可读。
@@ -32,8 +58,15 @@ export function createJsonTaskStore(filename: string): TaskStore {
   return {
     list,
 
-    create(title) {
-      const task = { id: randomUUID(), title, done: false };
+    create(input) {
+      const data: CreateTaskInput = typeof input === "string" ? { title: input } : input;
+      const task: Task = { id: randomUUID(), title: data.title, done: false };
+      applyOptionalField(task, "dueDate", data.dueDate);
+      applyOptionalField(task, "priority", data.priority);
+      applyOptionalField(task, "effort", data.effort);
+      if (data.subtasks && data.subtasks.length > 0) {
+        task.subtasks = normalizeSubtasks(data.subtasks);
+      }
       save([...list(), task]);
       return task;
     },
@@ -43,7 +76,19 @@ export function createJsonTaskStore(filename: string): TaskStore {
       const task = tasks.find((item) => item.id === id);
       if (!task) return undefined;
 
-      Object.assign(task, changes);
+      if (changes.title !== undefined) task.title = changes.title;
+      if (changes.done !== undefined) task.done = changes.done;
+      applyOptionalField(task, "dueDate", changes.dueDate);
+      applyOptionalField(task, "priority", changes.priority);
+      applyOptionalField(task, "effort", changes.effort);
+      if (changes.subtasks !== undefined) {
+        if (changes.subtasks.length === 0) {
+          delete task.subtasks;
+        } else {
+          task.subtasks = normalizeSubtasks(changes.subtasks);
+        }
+      }
+
       save(tasks);
       return task;
     },
